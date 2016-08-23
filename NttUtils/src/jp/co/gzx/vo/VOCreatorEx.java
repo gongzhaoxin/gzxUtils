@@ -9,11 +9,13 @@
  */
 package jp.co.gzx.vo;
 
-import java.io.BufferedReader;
-import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.util.HashMap;
+import java.io.InputStream;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Properties;
 
 /**
  * 論理名物理名変換辞書を元に、VOのgetter,setterメソッドを自動的に生成するクラス。
@@ -25,199 +27,152 @@ public final class VOCreatorEx {
 
 	// VOName
 	private String voName;
+	
+	// 論理名物理名変換辞書のproperties
+	private String voDctionary;
+	
+	// VO定義のproperties
+	private String pVO;
 
 	private FileWriter fileWriter;
 
+	private StringBuffer headBuffer;
+	
 	private StringBuffer fieldBuffer;
 
 	private StringBuffer methodBuffer;
-
-	private StringBuffer toStringBuffer;
-
-	private StringBuffer toEqualsBuffer;
-
-	private StringBuffer hashCodeBuffer;
 
 	private StringBuffer fileEndBuffer;
 
 	/**
 	 * コンストラクタ
-	 * @param VOName
-	 * @param propertiesName
 	 */
-	public VOCreatorEx(String voName, String proName) throws IOException {
+	public VOCreatorEx() throws IOException {
+		this.voName = "Vo";
+		this.voDctionary = "voDctionary.properties";
+		this.pVO = "VOField.properties";
+		fileWriter = new FileWriter(voName + ".java");
+		
+		headBuffer = new StringBuffer();
+		fieldBuffer = new StringBuffer();
+		methodBuffer = new StringBuffer();
+		fileEndBuffer = new StringBuffer();
+	}
+
+	/**
+	 * コンストラクタ
+	 * 
+	 * @param voName
+	 * @param 論理名物理名変換辞書のproperties
+	 * @param VO定義のproperties
+	 */
+	public VOCreatorEx(String voName, String voDctionary, String pVO) throws IOException {
+		this();
 		this.voName = voName;
+		this.voDctionary = voDctionary;
+		this.pVO = pVO;
 
 		fileWriter = new FileWriter(voName + ".java");
 
-		fieldBuffer = new StringBuffer();
-		methodBuffer = new StringBuffer();
-		toStringBuffer = new StringBuffer();
-		toEqualsBuffer = new StringBuffer();
-		hashCodeBuffer = new StringBuffer();
-		fileEndBuffer = new StringBuffer();
 	}
 
 	/**
 	 * クラスファイルを作成する。
 	 */
-	public void createClass() throws IOException {
+	public void create() throws IOException {
 
-		appendToEqualsHead();
-		BufferedReader readerpro = new BufferedReader(new FileReader("name.pro"));
-		String dataLinePro = readerpro.readLine();
-		HashMap pro = new HashMap<String, String>();
-		while (dataLinePro != null) {
+		// VONameのpropertiesファイルを取得
+		InputStream isVOName = getClass().getResourceAsStream(voDctionary);
+		Properties pVOName = new Properties();
+		pVOName.load(isVOName);
 
-			if (dataLinePro.trim().length() > 0) {
-				String[] items = dataLinePro.split(",");
-				pro.put(items[0], items[1]);
+		// VO定義のpropertiesファイルを取得
+		InputStream isVO = getClass().getResourceAsStream(pVO);
+		Properties pVO = new Properties();
+		pVO.load(isVO);
+
+		// VO定義ファイルからReadしたフィールド分Loopし、VOを生成
+		Iterator<Entry<Object, Object>> iter = pVO.entrySet().iterator();
+		while (iter.hasNext()) {
+			Map.Entry<String, String> entry = (Map.Entry) iter.next();
+
+			/*
+			 * EclipseでpropertiesファイルEncodingをUTF-8に設定しておくと、文字化けしない案1
+			 * http://d.hatena.ne.jp/torazuka/20130225/eclipse
+			 * 1.ツールバーの［Window］→［Preferences］を開く
+			 * 2. 左のツリーメニューの［General］→［ContentTypes］を開く
+			 * 3. ［Content types:］の「Text」のツリーから「Java Properties File」を選ぶ
+			 * 4. 「Default enconding」を「UTF-8」に書き換える
+			 * 5.［Update］ボタン→［OK］ボタン
+			 */
+			/*
+			 * propertiesファイル取得した後に文字コード変換しておくと、文字化けしない案２
+			 *  String(entry.getKey().getBytes("ISO-8859-1"),"UTF-8");
+			 */
+			String name = entry.getKey();
+			String type = entry.getValue();
+
+			if (name.startsWith("vo.")){
+				continue;
 			}
-			dataLinePro = readerpro.readLine();
+			// フィールドの物理名をVONameのpropertiesファイル（論理名物理名変換辞書）を元に変換
+			String fieldName;
+			if (pVOName.containsKey(name)) {
+				// 辞書に存在する場合、変換する。
+				fieldName = (String) pVOName.get(name);
+			} else {
+				// 辞書に存在しない場合、生成したファイルに文字列"物理名が見つかりません"を出力
+				fieldName = "物理名が見つかりません";
 
+				// 存在しない論理名をVONameのpropertiesファイル（論理名物理名変換辞書）に追加
+				// TODO 今後実現
+			}
+
+			// getter,setterのメソッド名変換
+			String firstWord = fieldName.substring(0, 1);
+			String methodName = fieldName.replaceFirst(firstWord, firstWord.toUpperCase());
+
+			// フィールド定義を追加
+			appendField(name, type, fieldName);
+			// getter,setterのメソッドを追加
+			appendMethod(name, type, fieldName, methodName);
 		}
 
-		BufferedReader reader = new BufferedReader(new FileReader(voName + ".vo"));
-		String dataLine = reader.readLine();
-		boolean headerFlg = true;
-		boolean firstFlg = true;
-		while (dataLine != null) {
-
-			if (dataLine.trim().length() > 0) {
-				String fieldName = "";
-				String[] items = dataLine.split(",");
-
-				if (headerFlg && items[0].toLowerCase().endsWith("dto")) {
-					fileWriter = new FileWriter(items[1] + ".java");
-
-					// write header info
-					outputClassHeader(items[0], items[1]);
-
-					headerFlg = false;
-					dataLine = reader.readLine();
-					continue;
-				}
-				if (firstFlg) {
-					// SerialVersionUIDを追加する。
-					appendSerialVersionUID();
-					appendToStringHead();
-					firstFlg = false;
-				}
-
-				String name = items[0];
-				String type = items[1];
-
-				String methodName = null;
-				if (items.length == 2) {
-					if (pro.containsKey(name)) {
-						fieldName = (String) pro.get(name);
-					} else {
-						fieldName = "物理名が見つかりません";
-					}
-				} else if (items.length == 3) {
-					fieldName = items[2];
-				}
-				String firstWord = fieldName.substring(0, 1);
-				methodName = fieldName.replaceFirst(firstWord, firstWord.toUpperCase());
-
-				appendField(name, type, fieldName);
-				appendMethod(name, type, fieldName, methodName);
-				appendToString(name, fieldName);
-
-				appendToEquals(name, fieldName);
-
-			}
-			dataLine = reader.readLine();
-
-		}
-
-		appendToStringTrailer();
-		appendEqualsTrailer();
-
+		//
+		outputClassHeader(pVO.getProperty("vo.論理名"), pVO.getProperty("vo.物理名"), pVO.getProperty("vo.author"));
+		// フィールド定義をファイルに出力
+		fileWriter.write(headBuffer.toString());
+		// フィールド定義をファイルに出力
 		fileWriter.write(fieldBuffer.toString());
-
-		appendConstructor();
-
+		// getter,setterのメソッドをファイルに出力
 		fileWriter.write(methodBuffer.toString());
-
-		fileWriter.write(toStringBuffer.toString());
-
-		fileWriter.write(toEqualsBuffer.toString());
-
-		if (!headerFlg) {
-			appendOthers();
-			fileWriter.write(fileEndBuffer.toString());
-		}
 
 		fileWriter.close();
 
 	}
 
-	private void appendToEquals(String name, String fieldName) throws IOException {
-		// toEqualsBuffer.append("\r\n").append(" &&
-		// ObjectUtils.equals(this.").append(fieldName).append(",
-		// target.").append(fieldName).append(")");
-	}
+	/**
+	 * ヘッダ情報を作成
+	 * 
+	 * @param DTO論理名
+	 * @param DTO物理名（Class名）
+	 * @param 作成者
+	 */
+	private void outputClassHeader(String DtoName, String className, String author) throws IOException {
 
-	private void appendToEqualsHead() {
-		// toEqualsBuffer.append(" /**").append("\r\n");
-		// toEqualsBuffer.append(" *
-		// このオブジェクトと他のオブジェクトが等しいかどうかを示します。").append("\r\n");
-		// toEqualsBuffer.append(" * ").append("\r\n");
-		// toEqualsBuffer.append(" * @param obj 比較対象の参照オブジェクト").append("\r\n");
-		// toEqualsBuffer.append(" * @return 引数に指定されたオブジェクトとこのオブジェクトが等しい場合は
-		// true、").append("\r\n");
-		// toEqualsBuffer.append(" * そうでない場合は false").append("\r\n");
-		//
-		// toEqualsBuffer.append(" *").append("\r\n");
-		// toEqualsBuffer.append(" * @see
-		// java.lang.Object\\#equals(java.lang.Object)").append("\r\n");
-		//
-		// toEqualsBuffer.append(" */").append("\r\n");
-		// toEqualsBuffer.append(" @Override").append("\r\n");
-		// toEqualsBuffer.append(" public boolean equals(Object obj)
-		// {").append("\r\n").append("\r\n");
-		// toEqualsBuffer.append(" if (!(obj instanceof
-		// ").append(this.name).append(")) {").append("\r\n");
-		// toEqualsBuffer.append(" return false;").append("\r\n");
-		// toEqualsBuffer.append(" }").append("\r\n");
-		// toEqualsBuffer.append(" ").append(this.name).append(" target =
-		// (").append(this.name).append(") obj;").append("\r\n");
-		// toEqualsBuffer.append("\r\n");
-		// toEqualsBuffer.append(" return (super.equals(target)");
-
-		// toStringBuffer.append(" // クラス名").append("\r\n");
-		// toStringBuffer.append(" final String clsName =
-		// this.getClass().getName();").append("\r\n");
-		// toStringBuffer.append("
-		// buffer.append(\"#class::\").append(clsName).append(DELIM);").append("\r\n\r\n");
-	}
-
-	private void appendEqualsTrailer() {
-		// toEqualsBuffer.append(");").append("\r\n");
-		// toEqualsBuffer.append(" }").append("\r\n\r\n");
-	}
-
-	private void outputClassHeader(String DtoName, String className) throws IOException {
-
-		fieldBuffer.append("package jp.co.jip.nnn.subif.im.dto;").append("\r\n");
-		fieldBuffer.append("\r\n");
-		fieldBuffer.append("import java.io.Serializable;").append("\r\n");
-		fieldBuffer.append("\r\n");
-		fieldBuffer.append("/**").append("\r\n");
-		fieldBuffer.append(" * ").append(DtoName).append("。").append("\r\n");
-		fieldBuffer.append(" * ").append("\r\n");
-		fieldBuffer.append(" * @author 李　清華　天津NTTDATA").append("\r\n");
-		fieldBuffer.append(" */").append("\r\n");
-		fieldBuffer.append("public class ").append(className).append(" implements Serializable {").append("\r\n");
-		fieldBuffer.append("\r\n");
-	}
-
-	private void appendSerialVersionUID() throws IOException {
-		fieldBuffer.append("    /** serialVersionUID */").append("\r\n");
-		// fieldBuffer.append(" * serialVersionUID").append("\r\n");
-		// fieldBuffer.append(" */").append("\r\n");
-		fieldBuffer.append("    private static final long serialVersionUID = 1L;").append("\r\n\r\n");
+		headBuffer.append("package jp.co.jip.nnn.subif.im.dto;").append(System.lineSeparator());
+		headBuffer.append(System.lineSeparator());
+		headBuffer.append("import java.io.Serializable;").append(System.lineSeparator());
+		headBuffer.append(System.lineSeparator());
+		headBuffer.append("/**").append(System.lineSeparator());
+		headBuffer.append(" * ").append(DtoName).append("。").append(System.lineSeparator());
+		headBuffer.append(" * ").append(System.lineSeparator());
+		headBuffer.append(" * @author ").append(author).append(System.lineSeparator());
+		headBuffer.append(" */").append(System.lineSeparator());
+		headBuffer.append("public class ").append(className).append(" implements Serializable {").append(System.lineSeparator());
+		headBuffer.append(System.lineSeparator());
+		headBuffer.append("    /** serialVersionUID */").append(System.lineSeparator());
+		headBuffer.append("    private static final long serialVersionUID = 1L;").append("").append(System.lineSeparator()).append(System.lineSeparator());
 	}
 
 	/**
@@ -229,20 +184,20 @@ public final class VOCreatorEx {
 	private void appendField(String name, String type, String fieldName) {
 		fieldBuffer.append("    /**");
 		fieldBuffer.append(" ").append(name);
-		fieldBuffer.append(" */").append("\r\n");
+		fieldBuffer.append(" */").append(System.lineSeparator());
 		fieldBuffer.append("    private ").append(type).append(" ").append(fieldName);
 		if ("int".equals(type)) {
-			fieldBuffer.append(" = 0;\r\n\r\n");
+			fieldBuffer.append(" = 0;").append(System.lineSeparator()).append(System.lineSeparator());
 		} else if ("float".equals(type)) {
-			fieldBuffer.append(" = 0;\r\n\r\n");
+			fieldBuffer.append(" = 0;").append(System.lineSeparator()).append(System.lineSeparator());
 		} else if ("double".equals(type)) {
-			fieldBuffer.append(" = 0;\r\n\r\n");
+			fieldBuffer.append(" = 0;").append(System.lineSeparator()).append(System.lineSeparator());
 		} else if ("long".equals(type)) {
-			fieldBuffer.append(" = 0;\r\n\r\n");
+			fieldBuffer.append(" = 0;").append(System.lineSeparator()).append(System.lineSeparator());
 		} else if ("char".equals(type)) {
-			fieldBuffer.append(" = 0;\r\n\r\n");
+			fieldBuffer.append(" = 0;").append(System.lineSeparator()).append(System.lineSeparator());
 		} else {
-			fieldBuffer.append(" = null;\r\n\r\n");
+			fieldBuffer.append(" = null;").append(System.lineSeparator()).append(System.lineSeparator());
 		}
 	}
 
@@ -255,95 +210,25 @@ public final class VOCreatorEx {
 	 * @param codeValue
 	 */
 	private void appendMethod(String name, String type, String fieldName, String methodName) {
-		methodBuffer.append("    /**").append("\r\n");
-		methodBuffer.append("     * ").append(name).append("を取得します。").append("\r\n");
-		methodBuffer.append("     *").append("\r\n");
-		methodBuffer.append("     * @return ").append(name).append("\r\n");
-		methodBuffer.append("     */").append("\r\n");
+		methodBuffer.append("    /**").append(System.lineSeparator());
+		methodBuffer.append("     * ").append(name).append("を取得します。").append(System.lineSeparator());
+		methodBuffer.append("     *").append(System.lineSeparator());
+		methodBuffer.append("     * @return ").append(name).append(System.lineSeparator());
+		methodBuffer.append("     */").append(System.lineSeparator());
 		methodBuffer.append("    public final ").append(type).append(" get").append(methodName).append("() {")
-				.append("\r\n");
-		methodBuffer.append("        return this.").append(fieldName).append(";\r\n");
-		methodBuffer.append("    }\r\n\r\n");
+				.append(System.lineSeparator());
+		methodBuffer.append("        return this.").append(fieldName).append(";").append(System.lineSeparator());
+		methodBuffer.append("    }").append(System.lineSeparator()).append(System.lineSeparator());
 
-		methodBuffer.append("    /**").append("\r\n");
-		methodBuffer.append("     * ").append(name).append("を設定します。").append("\r\n");
-		methodBuffer.append("     *").append("\r\n");
-		methodBuffer.append("     * @param ").append(fieldName).append(" ").append(name).append("\r\n");
-		methodBuffer.append("     */").append("\r\n");
+		methodBuffer.append("    /**").append(System.lineSeparator());
+		methodBuffer.append("     * ").append(name).append("を設定します。").append(System.lineSeparator());
+		methodBuffer.append("     *").append(System.lineSeparator());
+		methodBuffer.append("     * @param ").append(fieldName).append(" ").append(name).append(System.lineSeparator());
+		methodBuffer.append("     */").append(System.lineSeparator());
 		methodBuffer.append("    public final void set").append(methodName).append("(").append(type).append(" ")
-				.append(fieldName).append(") ").append("{\r\n");
-		methodBuffer.append("        this.").append(fieldName).append(" = ").append(fieldName).append(";\r\n");
-		methodBuffer.append("    }\r\n\r\n");
-	}
-
-	private void appendToString(String name, String fieldName) throws IOException {
-		// toStringBuffer.append(" // ").append(name).append("\r\n");
-		//// toStringBuffer.append("
-		// buffer.append(\"[").append(fieldName).append("::").append("\").append(").append(fieldName).append(").append(\"]\");").append("\r\n");
-		// toStringBuffer.append(" builder.append(\"[").append(name).append("
-		// =").append("\");").append("\r\n");
-		// toStringBuffer.append("
-		// builder.append(this.").append(fieldName).append(");").append("\r\n");
-		// toStringBuffer.append("
-		// builder.append(\"]\");").append("\r\n").append("\r\n");
-	}
-
-	private void appendToStringHead() {
-		// toStringBuffer.append(" /**").append("\r\n");
-		// toStringBuffer.append(" * 文字列形式オブジェクト内容を取得する。").append("\r\n");
-		// toStringBuffer.append(" * ").append("\r\n");
-		// toStringBuffer.append(" * @return 文字列形式オブジェクト内容").append("\r\n");
-		// toStringBuffer.append(" */").append("\r\n");
-		// toStringBuffer.append(" @Override").append("\r\n");
-		// toStringBuffer.append(" public String toString()
-		// {").append("\r\n\r\n");
-		// toStringBuffer.append(" StringBuilder builder = new
-		// StringBuilder();").append("\r\n");
-		// toStringBuffer.append("").append("\r\n");
-
-		// toStringBuffer.append(" // クラス名").append("\r\n");
-		// toStringBuffer.append(" final String clsName =
-		// this.getClass().getName();").append("\r\n");
-		// toStringBuffer.append("
-		// buffer.append(\"#class::\").append(clsName).append(DELIM);").append("\r\n\r\n");
-	}
-
-	private void appendToStringTrailer() {
-		// toStringBuffer.append(" return builder.toString();").append("\r\n");
-		// toStringBuffer.append(" }").append("\r\n\r\n");
-	}
-
-	private void appendConstructor() throws IOException {
-		// fileWriter.write(" /**" + "\r\n");
-		// fileWriter.write(" * コンストラクタ" + "\r\n");
-		// fileWriter.write(" */" + "\r\n");
-		// fileWriter.write(" public ");
-		// fileWriter.write(this.name);
-		// fileWriter.write("() {" + "\r\n");
-		// fileWriter.write(" super();" + "\r\n");
-		// fileWriter.write(" }" + "\r\n\r\n");
-	}
-
-	private void appendOthers() throws IOException {
-
-		// hashCodeBuffer.append(" /**").append("\r\n");
-		// hashCodeBuffer.append(" * オブジェクトのハッシュコード値を返します。").append("\r\n");
-		// hashCodeBuffer.append(" * ").append("\r\n");
-		// hashCodeBuffer.append(" * @return このオブジェクトのハッシュコード値").append("\r\n");
-		// hashCodeBuffer.append(" * @see
-		// java.lang.Object\\#hashCode()").append("\r\n");
-		// hashCodeBuffer.append(" */").append("\r\n");
-		// hashCodeBuffer.append(" @Override").append("\r\n");
-		// hashCodeBuffer.append(" public int hashCode() {").append("\r\n");
-		// hashCodeBuffer.append(" return
-		// (toString().hashCode());").append("\r\n");
-		// hashCodeBuffer.append(" }").append("\r\n");
-		//
-		fileEndBuffer.append("}").append("\r\n");
-		//
-		// fileWriter.write(hashCodeBuffer.toString());
-		// fileWriter.write(fileEndBuffer.toString());
-
+				.append(fieldName).append(") ").append("{").append(System.lineSeparator());
+		methodBuffer.append("        this.").append(fieldName).append(" = ").append(fieldName).append(";").append(System.lineSeparator());
+		methodBuffer.append("    }").append(System.lineSeparator()).append(System.lineSeparator());
 	}
 
 	/**
@@ -354,9 +239,8 @@ public final class VOCreatorEx {
 	 */
 	public static void main(String[] args) {
 		try {
-			String name = "DtoEx";
-			VOCreatorEx creator = new VOCreatorEx(name,null);
-			creator.createClass();
+			VOCreatorEx creator = new VOCreatorEx();
+			creator.create();
 			System.out.println("good!");
 		} catch (IOException e) {
 			e.printStackTrace();

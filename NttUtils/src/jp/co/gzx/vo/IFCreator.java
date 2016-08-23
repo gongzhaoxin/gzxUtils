@@ -192,7 +192,7 @@ public final class IFCreator {
     	fieldBuffer.append("/**").append("\r\n");
     	fieldBuffer.append(" * ").append(DtoName).append("。").append("\r\n");
     	fieldBuffer.append(" * ").append("\r\n");
-    	fieldBuffer.append(" * @author 李　清華　天津NTTDATA").append("\r\n");
+    	fieldBuffer.append(" * @author ").append("\r\n");
     	fieldBuffer.append(" */").append("\r\n");
     	fieldBuffer.append("public class ").append(className).append(" implements Serializable {").append("\r\n");
     	fieldBuffer.append("\r\n");

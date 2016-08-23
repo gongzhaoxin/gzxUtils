@@ -12,8 +12,7 @@ public class FilesOfFolderMain {
 
   public static void main(String[] args) {
     // 递归取到所有的文件进行转换
-    //findAllFiles("C:\\jip\\NNN-Lota-src-20150323\\noncore-common");
-    findAllFiles("C:\\jip\\NNN-Lota-src-20150323\\subif-cf");
+    findAllFiles("");
 
   }
 
