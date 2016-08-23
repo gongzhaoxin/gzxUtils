@@ -1,0 +1,11 @@
+証券科目情報DTO,XXXDTO
+証券科目コード,String
+本支店区分,String
+受入運用区分,String
+大科目コード,String
+中科目コード,String
+小科目コード,String
+証券科目名称,String
+証券科目略称,String
+主管部署コード,String
+保振権利保全区分,String
